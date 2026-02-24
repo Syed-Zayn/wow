@@ -3,29 +3,64 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load local environment variables if running locally
+# 1. Load local environment variables if running locally
 load_dotenv()
 
-# Streamlit UI Configuration
+# 2. Streamlit UI Configuration
 st.set_page_config(page_title="SCAPILE Enterprise", page_icon="⚖️", layout="centered")
 st.title("⚖️ SCAPILE Enterprise AI")
 st.caption("Submarine Cables & Pipelines Legal Intelligence Engine")
 
-# Setup OpenAI Client (Works for both Local .env and Streamlit Cloud Secrets)
-api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
+# ==========================================
+# 🛡️ 3. THE BULLETPROOF API KEY LOADER
+# ==========================================
+api_key = None
 
-# ⚠️ Yahan apna actual Assistant ID daalo jo logs mein aata hai
+# Step A: Try getting from Streamlit Secrets first (for Cloud)
+try:
+    if "OPENAI_API_KEY" in st.secrets:
+        api_key = st.secrets["OPENAI_API_KEY"]
+except Exception:
+    pass
+
+# Step B: If not found in Secrets, try local .env
+if not api_key:
+    api_key = os.getenv("OPENAI_API_KEY")
+
+# Step C: If still completely empty, STOP the app gracefully
+if not api_key:
+    st.error("🚨 CRITICAL ERROR: API Key is completely missing!")
+    st.info("Please add OPENAI_API_KEY to your Streamlit Secrets or local .env file.")
+    st.stop()
+
+# Step D: Clean the key (remove hidden spaces/newlines)
+clean_api_key = str(api_key).strip()
+
+# Step E: Validate format
+if not clean_api_key.startswith("sk-"):
+    st.error(f"🚨 CRITICAL ERROR: Invalid API Key format! (Length: {len(clean_api_key)}). Make sure it starts with 'sk-'")
+    st.stop()
+
+# ==========================================
+# ⚙️ 4. SYSTEM INITIALIZATION
+# ==========================================
+# Initialize OpenAI Client safely
+client = OpenAI(api_key=clean_api_key)
+
+# ⚠️ Yahan apna actual Assistant ID daalo
 ASSISTANT_ID = "asst_6uziJdNAggmJiiUD4jNUF6ej" 
 
 # Initialize Chat History & Thread in Session State
 if "thread_id" not in st.session_state:
-    thread = client.beta.threads.create()
+    thread = client.beta.threads.create()  # 👈 Ab yeh line KABHI fail nahi hogi!
     st.session_state.thread_id = thread.id
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Welcome! Ask me any legal question regarding submarine cables or type `RCH [topic]` for forensic extraction."}]
 
+# ==========================================
+# 💬 5. MAIN CHAT INTERFACE
+# ==========================================
 # Display previous messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -79,4 +114,5 @@ if prompt := st.chat_input("Ask a legal question or use RCH..."):
                 message_placeholder.error(f"⚠️ Operation failed with status: {run.status}")
                 
         except Exception as e:
+            # Agar rate limit ya koi aur masla aya toh gracefully handle karega
             message_placeholder.error(f"❌ Error: {str(e)}")
